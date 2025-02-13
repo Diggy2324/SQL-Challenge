@@ -39,21 +39,6 @@ async function ViewAllRoles() {
   }
 }
 
-async function ViewAllEmployees() {
-  try {
-    const result = await pool.query(`
-      SELECT e.id, e.first_name, e.last_name, role.title, role.salary, department.name AS department, COALESCE(m.first_name || ' ' || m.last_name, 'N/A') AS manager
-      FROM employee e
-      INNER JOIN role ON e.role_id = role.id
-      INNER JOIN department ON role.department_id = department.id
-      LEFT JOIN employee m ON e.manager_id = m.id
-    `);
-    console.table(result.rows);
-  } catch (err) {
-    console.error("Error viewing employees:", err);
-  }
-}
-
 async function ViewAllManagers() {
   try {
     const result = await pool.query(`
@@ -66,6 +51,21 @@ async function ViewAllManagers() {
     console.table(result.rows);
   } catch (err) {
     console.error("Error viewing managers:", err);
+  }
+}
+
+async function ViewAllEmployees() {
+  try {
+    const result = await pool.query(`
+      SELECT e.id, e.first_name, e.last_name, role.title, role.salary, department.name AS department, COALESCE(m.first_name || ' ' || m.last_name, 'N/A') AS manager
+      FROM employee e
+      INNER JOIN role ON e.role_id = role.id
+      INNER JOIN department ON role.department_id = department.id
+      LEFT JOIN employee m ON e.manager_id = m.id
+    `);
+    console.table(result.rows);
+  } catch (err) {
+    console.error("Error viewing employees:", err);
   }
 }
 
@@ -103,29 +103,67 @@ async function AddRole() {
   }
 }
 
-async function AddEmployee() {
+async function AddManager() {
   try {
+    // 1. Fetch Roles (Same as in AddEmployee)
     const roles = await pool.query('SELECT * FROM role');
-    const employees = await pool.query('SELECT * FROM employee');
-
-    const managerChoices = [{ name: "None", value: null }, ...employees.rows.map(employee => ({ name: `${employee.first_name} ${employee.last_name}`, value: employee.id }))];
+    const employees = await pool.query('SELECT * FROM employee'); //Get the list of employees for the manager selection
 
     const { first_name, last_name, role_id, manager_id } = await inquirer.prompt([
-      { type: 'input', name: 'first_name', message: 'Enter the employee\'s first name:' },
-      { type: 'input', name: 'last_name', message: 'Enter the employee\'s last name:' },
-      {
-        type: 'list',
-        name: 'role_id',
-        message: 'Select the employee\'s role:',
-        choices: roles.rows.map(role => ({ name: role.title, value: role.id })),
-      },
-      {
+      { type: 'input', name: 'first_name', message: "Enter the manager's first name:" },
+      { type: 'input', name: 'last_name', message: "Enter the manager's last name:" },
+      { //Prompt for a manager, if the role is not manager, allow null
         type: 'list',
         name: 'manager_id',
-        message: 'Select the employee\'s manager:',
-        choices: managerChoices, // Use the correct choices array
+        message: "Select the manager's manager (or leave blank):",
+        choices: [{name: 'Peter', value: 'Crows'}, ...employees.rows.map(employee => ({ name: employee.first_name + ' ' + employee.last_name, value: employee.id }))],
       },
     ]);
+
+    // 2. Parameterized Query (Essential!)
+    const query = `INSERT INTO employee (first_name, last_name, role_id, manager_id) VALUES ($1, $2, $3, $4)`; 
+    const values = [first_name, last_name, role_id, manager_id];
+
+    console.log("SQL Query:", query);  // Log query (without values)
+    console.log("Values:", values);      // Log values separately
+
+    const result = await pool.query(query, values);
+    console.log("Manager added:", result.rows);
+
+  } catch (error) {
+    console.error("Error adding manager:", error);
+    throw error;
+  }
+}
+
+async function getEmployeeInput() {  // New reusable function
+  const roles = await pool.query('SELECT * FROM role');
+  const employees = await pool.query('SELECT * FROM employee'); // Fetch employees for manager selection
+
+  return inquirer.prompt([
+    { type: 'input', name: 'first_name', message: 'Enter the first name:' },
+    { type: 'input', name: 'last_name', message: 'Enter the last name:' },
+    {
+      type: 'list',
+      name: 'role_id',
+      message: 'Select the role:',
+      choices: roles.rows.map(role => ({ name: role.title, value: role.id })),
+    },
+    {
+      type: 'list',
+      name: 'manager_id',
+      message: 'Select the manager (or None):',
+      choices: [{ name: 'None', value: null }, ...employees.rows.map(employee => ({ name: `${employee.first_name} ${employee.last_name}`, value: employee.id }))],
+    },
+  ]);
+}
+
+
+async function AddEmployee() {
+  try {
+    const employeeData = await getEmployeeInput(); // Call the reusable function
+    const { first_name, last_name, role_id, manager_id } = employeeData; // Destructure
+
     await pool.query('INSERT INTO employee (first_name, last_name, role_id, manager_id) VALUES ($1, $2, $3, $4)', [first_name, last_name, role_id, manager_id]);
     console.log(`Employee Added! "${first_name} ${last_name}"`);
   } catch (err) {
@@ -133,24 +171,20 @@ async function AddEmployee() {
   }
 }
 
-async function AddManager() {
+// Example Update Employee Function (Illustrative)
+async function UpdateEmployee(employeeId) {
   try {
-    const employees = await pool.query('SELECT * FROM employee');
-    const { first_name, last_name, role_id, manager_id } = await inquirer.prompt([
-      { type: 'input', name: 'first_name', message: 'Enter the manager\'s first name:' },
-      { type: 'input', name: 'last_name', message: 'Enter the manager\'s last name:' },
-      {
-        type: 'list',
-        name: 'manager_id',
-        message: 'Select the manager\'s manager:',
-        choices: employees.rows.map(employee => ({ name: `${employee.first_name} ${employee.last_name}`, value: employee.id })),
-      },
-    ]);
+    const employeeData = await getEmployeeInput(); // Reuse the input function!
+    const { first_name, last_name, role_id, manager_id } = employeeData;
 
-    await pool.query('INSERT INTO employee (first_name, last_name, role_id, manager_id) VALUES ($1, $2, $3, $4)', [first_name, last_name, role_id, manager_id]);
-    console.log(`Manager Added! "${first_name} ${last_name}"`);
+    // Build your UPDATE query here, using employeeId and the new data
+    const query = `UPDATE employee SET first_name = $1, last_name = $2, role_id = $3, manager_id = $4 WHERE id = $5`;
+    const values = [first_name, last_name, role_id, manager_id, employeeId];
+
+    await pool.query(query, values);
+    console.log(`Employee updated!`);
   } catch (err) {
-    console.error("Error adding manager:", err);
+    console.error("Error updating employee:", err);
   }
 }
 
@@ -178,6 +212,59 @@ async function UpdateEmployeeRole() {
     console.log('Employee role updated!');
   } catch (error) {
     console.error("Error updating employee role:", error);
+  }
+}
+
+async function UpdateEmployeeManager() {
+  try {
+    const employees = await pool.query('SELECT * FROM employee');
+    const managers = await pool.query('SELECT * FROM employee');
+
+    const { employee_id, manager_id } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'employee_id',
+        message: 'Select the employee to update:',
+        choices: employees.rows.map(e => ({ name: `${e.first_name} ${e.last_name}`, value: e.id })),
+      },
+      {
+        type: 'list',
+        name: 'manager_id',
+        message: 'Select the new manager:',
+        choices: managers.rows.map(m => ({ name: `${m.first_name} ${m.last_name}`, value: m.id })),
+      },
+    ]);
+    
+    await pool.query('UPDATE employee SET manager_id = $1 WHERE id = $2', [manager_id, employee_id]);
+    console.log('Employee manager updated!');
+  } catch (error) {
+    console.error("Error updating employee manager:", error);
+  }
+}
+
+async function DeleteManager() {
+  try {
+    const managers = await pool.query('SELECT * FROM employee WHERE role_id = 1');
+    const { manager_id } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'manager_id',
+        message: 'Select the manager to delete:',
+        choices: managers.rows.map(m => ({ name: `${m.first_name} ${m.last_name}`, value: m.id })),
+      },
+    ]);
+
+    // Check if any employees have this manager before deleting
+    const employeesWithManager = await pool.query('SELECT * FROM employee WHERE manager_id = $1', [manager_id]);
+    if (employeesWithManager.rows.length > 0) {
+      console.log("Cannot delete manager. Employees are currently assigned to this manager. Update employees first.");
+      return;
+    }
+
+    await pool.query('DELETE FROM employee WHERE id = $1', [manager_id]);
+    console.log('Manager deleted!');
+  } catch (error) {
+    console.error("Error deleting manager:", error);
   }
 }
 
@@ -226,26 +313,6 @@ async function DeleteRole() {
   }
 }
 
-async function DeleteManager() {
-  try {
-    const managers = await pool.query('SELECT * FROM employee');
-    const { manager_id } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'manager_id',
-        message: 'Select the manager to delete:',
-        choices: managers.rows.map(e => ({ name: `${e.first_name} ${e.last_name}`, value: e.id })),
-      },
-    ]);
-
-    await pool.query('DELETE FROM employee WHERE id = $1', [manager_id]);
-    console.log('Manager deleted!');
-  } catch (error) {
-    console.error("Error deleting manager:", error);
-  }
-}
-
-
 async function DeleteDepartment() {
   try {
     const departments = await pool.query('SELECT * FROM department');
@@ -288,12 +355,13 @@ async function startApp() {
           'View all managers',
           'Add a department',
           'Add a role',
-          'Add an employee',
           'Add a manager',
+          'Add an employee',
           'Update an employee role',
+          'Update an employee manager',
+          'Delete a manager',
           'Delete an employee',
-          'Delete a role',
-          'Delete a manager',       
+          'Delete a role',       
           'Delete a department',  
           'Quit',
         ],
@@ -312,12 +380,13 @@ async function startApp() {
         case 'View all managers': await ViewAllManagers(); break;
         case 'Add a department': await AddDepartment(); break;
         case 'Add a role': await AddRole(); break;
+        case 'Add a manager': await AddManager(); break
         case 'Add an employee': await AddEmployee(); break;
-        case 'Add a manager': await AddManager(); break;
         case 'Update an employee role': await UpdateEmployeeRole(); break;
+        case 'Update an employee manager': await UpdateEmployeeManager(); break;
+        case 'Delete a manager': await DeleteManager(); break
         case 'Delete an employee': await DeleteEmployee(); break; 
-        case 'Delete a role': await DeleteRole(); break;
-        case 'Delete a manager': await DeleteManager(); break;         
+        case 'Delete a role': await DeleteRole(); break;         
         case 'Delete a department': await DeleteDepartment(); break;
         default: console.log("Invalid action");
       }
