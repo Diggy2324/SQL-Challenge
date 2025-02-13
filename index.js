@@ -54,6 +54,21 @@ async function ViewAllEmployees() {
   }
 }
 
+async function ViewAllManagers() {
+  try {
+    const result = await pool.query(`
+      SELECT e.id, e.first_name, e.last_name, role.title, role.salary, department.name AS department, COALESCE(m.first_name || ' ' || m.last_name, 'N/A') AS manager
+      FROM employee e
+      INNER JOIN role ON e.role_id = role.id
+      INNER JOIN department ON role.department_id = department.id
+      LEFT JOIN employee m ON e.manager_id = m.id
+    `);
+    console.table(result.rows);
+  } catch (err) {
+    console.error("Error viewing managers:", err);
+  }
+}
+
 async function AddDepartment() {
   try {
     const { name } = await inquirer.prompt({
@@ -121,17 +136,21 @@ async function AddEmployee() {
 async function AddManager() {
   try {
     const employees = await pool.query('SELECT * FROM employee');
-    const { manager_id } = await inquirer.prompt([
+    const { first_name, last_name, role_id, manager_id } = await inquirer.prompt([
+      { type: 'input', name: 'first_name', message: 'Enter the manager\'s first name:' },
+      { type: 'input', name: 'last_name', message: 'Enter the manager\'s last name:' },
       {
         type: 'list',
         name: 'manager_id',
-        message: 'Select the manager for the new employee:',
-        choices: employees.rows.map(e => ({ name: `${e.first_name} ${e.last_name}`, value: e.id })),
+        message: 'Select the manager\'s manager:',
+        choices: employees.rows.map(employee => ({ name: `${employee.first_name} ${employee.last_name}`, value: employee.id })),
       },
     ]);
-    return manager_id;
-  } catch (error) {
-    console.error("Error adding manager:", error);
+
+    await pool.query('INSERT INTO employee (first_name, last_name, role_id, manager_id) VALUES ($1, $2, $3, $4)', [first_name, last_name, role_id, manager_id]);
+    console.log(`Manager Added! "${first_name} ${last_name}"`);
+  } catch (err) {
+    console.error("Error adding manager:", err);
   }
 }
 
@@ -207,6 +226,26 @@ async function DeleteRole() {
   }
 }
 
+async function DeleteManager() {
+  try {
+    const managers = await pool.query('SELECT * FROM employee');
+    const { manager_id } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'manager_id',
+        message: 'Select the manager to delete:',
+        choices: managers.rows.map(e => ({ name: `${e.first_name} ${e.last_name}`, value: e.id })),
+      },
+    ]);
+
+    await pool.query('DELETE FROM employee WHERE id = $1', [manager_id]);
+    console.log('Manager deleted!');
+  } catch (error) {
+    console.error("Error deleting manager:", error);
+  }
+}
+
+
 async function DeleteDepartment() {
   try {
     const departments = await pool.query('SELECT * FROM department');
@@ -246,13 +285,15 @@ async function startApp() {
           'View all departments',
           'View all roles',
           'View all employees',
+          'View all managers',
           'Add a department',
           'Add a role',
           'Add an employee',
           'Add a manager',
           'Update an employee role',
           'Delete an employee',
-          'Delete a role',       
+          'Delete a role',
+          'Delete a manager',       
           'Delete a department',  
           'Quit',
         ],
@@ -268,13 +309,15 @@ async function startApp() {
         case 'View all departments': await ViewAllDepartments(); break;
         case 'View all roles': await ViewAllRoles(); break;
         case 'View all employees': await ViewAllEmployees(); break;
+        case 'View all managers': await ViewAllManagers(); break;
         case 'Add a department': await AddDepartment(); break;
         case 'Add a role': await AddRole(); break;
         case 'Add an employee': await AddEmployee(); break;
         case 'Add a manager': await AddManager(); break;
         case 'Update an employee role': await UpdateEmployeeRole(); break;
         case 'Delete an employee': await DeleteEmployee(); break; 
-        case 'Delete a role': await DeleteRole(); break;         
+        case 'Delete a role': await DeleteRole(); break;
+        case 'Delete a manager': await DeleteManager(); break;         
         case 'Delete a department': await DeleteDepartment(); break;
         default: console.log("Invalid action");
       }
