@@ -26,4 +26,4 @@ The Employee Tracker provides a simple and efficient way to manage employee data
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/your_username/employee_tracker.git](https://www.google.com/search?q=https://github.com/your_username/employee_tracker.git)  # Replace with your repo URL
+   git clone https://github.com/Diggy2324/SQL-Challenge.git
